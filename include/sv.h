@@ -86,7 +86,7 @@ char *sv_to_cstr(String_View sv) {
     char *result = malloc(sv.count + 1);
 
     memcpy(result, sv.items, sv.count);
-    result[sv.count + 1] = '\0';
+    result[sv.count] = '\0';
 
     return result;
 }
