@@ -18,6 +18,10 @@ typedef struct nodo_t {
     struct nodo_t *proximo;
 } nodo_t;
 
+typedef struct {
+    Rectangle posicao;
+} combobox_estado;
+
 void anexar_nodo(nodo_t *inicio, char *s) {
     nodo_t *temp = inicio;
     
@@ -71,8 +75,8 @@ int main(void) {
     int qtde_bancos = 0;
     int qtde_tabelas = 0;
 
-    char bancos_combobox[STR_MAX];
-    char tabelas_combobox[STR_MAX];
+    char bancos_combobox[STR_MAX] = " ";
+    char tabelas_combobox[STR_MAX] = " ";
 
     nodo_t bancos = { .proximo = NULL };
     nodo_t tabelas = { .proximo = NULL };
@@ -100,7 +104,6 @@ int main(void) {
     mysql_free_result(res);
 
     nodo_t *tmp = &bancos;
-    *bancos_combobox = '\0';
     while (tmp->proximo != NULL) {
         tmp = tmp->proximo;
 
@@ -119,34 +122,42 @@ int main(void) {
     int listViewScrollIndex = 0;
     int listViewActive = -1;
 
-    bool db_aberto, tb_aberto = false;
+    bool db_aberto = false, tb_aberto = false;
+
+    combobox_estado tabelas_estado = {
+        .posicao = { 16, 20 + 16 + 64, (GetScreenWidth() / 3), GetScreenHeight() - 128 }
+    };
+
+    combobox_estado bancos_estado = {
+        .posicao = { 16, 20 + 16, GetScreenWidth() / 3, 32 }
+    };
+
+    Font font = LoadFontEx("./fonte/IosevkaNerdFont-Regular.ttf", 16, NULL, 100);
+    GuiSetFont(font);
 
     // Loop de interface grafica
     while (!WindowShouldClose()) {
         BeginDrawing();
-            GuiSetStyle(DROPDOWNBOX, TEXT_PADDING, 4);
-            GuiSetStyle(DROPDOWNBOX, TEXT_PADDING, 4);
+            // GuiSetStyle(DROPDOWNBOX, TEXT_SIZE, GuiGetFont().baseSize * 8);
+            // GuiSetStyle(LISTVIEW, TEXT_SIZE, GuiGetFont().baseSize * 2);
+            GuiSetStyle(DEFAULT, TEXT_SIZE, GuiGetFont().baseSize);
 
             ClearBackground(RAYWHITE);
 
-            DrawText("Tabela:", 16, 16 + 64, GuiGetFont().baseSize, BLACK);
+            //DrawText("Tabela:", 16, 16 + 64, GuiGetFont().baseSize, BLACK);
+            GuiDrawText("Tabela:", (Rectangle) { 16, 12 + 64, 200, 32 }, 0, BLACK);
+        
+            tabelas_estado.posicao.height = GetScreenHeight() - 128;
             
-            nodo_t *tmp = &tabelas;
-            *tabelas_combobox = '\0';
-            while (tmp->proximo != NULL) {
-                tmp = tmp->proximo;
+            if (db_aberto) GuiDisable();
+            
+            GuiListView(tabelas_estado.posicao, tabelas_combobox, &listViewScrollIndex, &listViewActive);
 
-                strcat(tabelas_combobox, tmp->nome);
-                if (tmp->proximo != NULL)
-                    strcat(tabelas_combobox, ";");
-            }
-
-            GuiListView((Rectangle){16, 20 + 16 + 64, 200, 600 - 128}, tabelas_combobox, &listViewScrollIndex, &listViewActive);
-
-            DrawText("Banco de Dados:", 16, 16, GuiGetFont().baseSize, BLACK);
+            GuiDrawText("Banco de Dados:", (Rectangle) { 16, 12, 200, 32 }, 0, BLACK);
+            GuiEnable();
 
             // TODO: Lidar com sv_to_cstr, aqui ocorre um memory leak
-            if (GuiDropdownBox((Rectangle) {16, 20 + 16, 200, 32}, bancos_combobox, &bd_selecionado, db_aberto)) {
+            if (GuiDropdownBox(bancos_estado.posicao, bancos_combobox, &bd_selecionado, db_aberto)) {
                 db_aberto = !db_aberto;
                 if (!db_aberto) {
                     nodo_t *bd_ativo = buscar_nodo_indice(&bancos, bd_selecionado);
@@ -169,9 +180,27 @@ int main(void) {
                         printf("%s: %s\n", bd_ativo->nome, row[0]);
                     }
 
+                    nodo_t *tmp = &tabelas;
+                    *tabelas_combobox = '\0';
+                    while (tmp->proximo != NULL) {
+                        tmp = tmp->proximo;
+
+                        if ((strlen(tabelas_combobox) + strlen(tmp->nome) + 1) <= STR_MAX) {
+                            strcat(tabelas_combobox, tmp->nome);
+                            if (tmp->proximo != NULL)
+                                strcat(tabelas_combobox, ";");
+                        } else {
+                            fprintf(stderr, "ERRO: tabelas_combobox atingiu seu limite\n");
+                        }
+                    }
                     mysql_free_result(res);
                 }
             }
+
+            if (listViewActive >= 0) {
+                
+            }
+
         EndDrawing();
     }
 
