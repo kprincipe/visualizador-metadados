@@ -5,13 +5,17 @@
 
 #include "raylib.h"
 
+// TODO: Achar uma maneira de nao precisar alocar esse espaco estaticamente
+#define RAYGUI_TEXTSPLIT_MAX_ITEMS          128 * 4
+#define RAYGUI_TEXTSPLIT_MAX_TEXT_SIZE     1024 * 4
+
 #define RAYGUI_IMPLEMENTATION
 #include "raygui.h"
 
 #define SV_IMPLEMENTATION
 #include <sv.h>
 
-#define STR_MAX 1024 * 4
+#define STR_MAX 1024 * 8
 
 typedef struct nodo_t {
     char nome[STR_MAX];
@@ -138,8 +142,6 @@ int main(void) {
     // Loop de interface grafica
     while (!WindowShouldClose()) {
         BeginDrawing();
-            // GuiSetStyle(DROPDOWNBOX, TEXT_SIZE, GuiGetFont().baseSize * 8);
-            // GuiSetStyle(LISTVIEW, TEXT_SIZE, GuiGetFont().baseSize * 2);
             GuiSetStyle(DEFAULT, TEXT_SIZE, GuiGetFont().baseSize);
 
             ClearBackground(RAYWHITE);
@@ -151,7 +153,10 @@ int main(void) {
             
             if (db_aberto) GuiDisable();
             
-            GuiListView(tabelas_estado.posicao, tabelas_combobox, &listViewScrollIndex, &listViewActive);
+            if (GuiListView(tabelas_estado.posicao, tabelas_combobox, &listViewScrollIndex, &listViewActive)) {
+                nodo_t *tmp = buscar_nodo_indice(&tabelas, listViewActive);
+                printf("DEBUG: tabela %s\n", tmp->nome);
+            }
 
             GuiDrawText("Banco de Dados:", (Rectangle) { 16, 12, 200, 32 }, 0, BLACK);
             GuiEnable();
@@ -186,6 +191,7 @@ int main(void) {
                         tmp = tmp->proximo;
 
                         if ((strlen(tabelas_combobox) + strlen(tmp->nome) + 1) <= STR_MAX) {
+                            
                             strcat(tabelas_combobox, tmp->nome);
                             if (tmp->proximo != NULL)
                                 strcat(tabelas_combobox, ";");
@@ -193,14 +199,10 @@ int main(void) {
                             fprintf(stderr, "ERRO: tabelas_combobox atingiu seu limite\n");
                         }
                     }
+                    printf("DEBUG: %s\n", tabelas_combobox);
                     mysql_free_result(res);
                 }
             }
-
-            if (listViewActive >= 0) {
-                
-            }
-
         EndDrawing();
     }
 
