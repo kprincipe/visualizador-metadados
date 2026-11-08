@@ -74,7 +74,11 @@ int main(void) {
     char query[STR_MAX];
 
     String_Builder bancos = {0};
+    String_View banco_selecionado = {0};
+
     String_Builder tabelas = {0};
+    String_View tabela_selecionada = {0};
+
     String_Builder atributos = {0};
 
     // Conectar com usuario mysql em um banco de dados
@@ -104,11 +108,11 @@ int main(void) {
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
     InitWindow(800, 600, "Information Schema Mysql");
 
-    int bd_selecionado = 0;
+    int bd_indice = 0;
     int tb_ativo = 0;
 
     int listViewScrollIndex = 0;
-    int listViewActive = 0;
+    int tabela_indice = 0;
 
     bool db_aberto = false, tb_aberto = false;
 
@@ -134,21 +138,41 @@ int main(void) {
             GuiButton((Rectangle) { bancos_estado.posicao.x + 312, bancos_estado.posicao.y, 200, 32 }, "Inserir dado");
             GuiEnable();
 
-            GuiDrawText("Tabela:", (Rectangle) { 16, 12 + 64, 200, 32 }, 0, BLACK);
-        
             tabelas_estado.posicao.height = GetScreenHeight() - 128;
             
+            GuiDrawText("Tabela:", (Rectangle) { 16, 12 + 64, 200, 32 }, 0, BLACK);
             if (db_aberto) GuiDisable();
-            if (GuiListView(tabelas_estado.posicao, tabelas.items, &listViewScrollIndex, &listViewActive));
+            
+            if (GuiListView(tabelas_estado.posicao, tabelas.items, &listViewScrollIndex, &tabela_indice)) {
+                tabela_selecionada = extract_item(&tabelas, tabela_indice);
+                
+                *query = '\0';
+                sprintf(query, "call listar_atributos('%.*s', '%.*s')", banco_selecionado.count, banco_selecionado.items, tabela_selecionada.count, tabela_selecionada.items);
+
+                mysql_next_result(mysql);
+                if (mysql_query(mysql, query)) {
+                    fprintf(stderr, "%s\n", mysql_error(mysql));
+                    exit(1);
+                }
+
+                res = mysql_use_result(mysql);
+
+                tabelas.count = 0;
+                while ((row = mysql_fetch_row(res)) != NULL) {
+                    if (tabelas.count != 0) da_append(&tabelas, ';');
+                    util_sb_from_cstr(&atributos, row[0]);
+                }
+                da_append(&atributos, '\0');
+            }
             GuiEnable();
 
             GuiDrawText("Banco de Dados:", (Rectangle) { 16, 12, 200, 32 }, 0, BLACK);
-            if (GuiDropdownBox(bancos_estado.posicao, bancos.items, &bd_selecionado, db_aberto)) {
+            if (GuiDropdownBox(bancos_estado.posicao, bancos.items, &bd_indice, db_aberto)) {
                 db_aberto = !db_aberto;
                 if (!db_aberto) {
                     *query = '\0';
-                    String_View bd = extract_item(&bancos, bd_selecionado);
-                    sprintf(query, "call listar_tabelas('%.*s')", bd.count, bd.items);
+                    banco_selecionado = extract_item(&bancos, bd_indice);
+                    sprintf(query, "call listar_tabelas('%.*s')", banco_selecionado.count, banco_selecionado.items);
 
                     mysql_next_result(mysql);
                     if (mysql_query(mysql, query)) {
