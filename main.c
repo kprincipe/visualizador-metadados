@@ -12,55 +12,52 @@
 #define RAYGUI_IMPLEMENTATION
 #include "raygui.h"
 
-#define SV_IMPLEMENTATION
-#include <sv.h>
+#define UTILS_IMPLEMENTATION
+#include "utils.h"
 
 #define STR_MAX 1024 * 8
-
-typedef struct nodo_t {
-    char nome[STR_MAX];
-    struct nodo_t *proximo;
-} nodo_t;
 
 typedef struct {
     Rectangle posicao;
 } combobox_estado;
 
-void anexar_nodo(nodo_t *inicio, char *s) {
-    nodo_t *temp = inicio;
-    
-    nodo_t *novo = malloc(sizeof(nodo_t));
-    sprintf(novo->nome, "%s", s);
-    novo->proximo = NULL;
+typedef enum {
+    PRINCIPAL = 0,
+    REGISTRO
+} estado_t;
 
-    while (temp->proximo != NULL) {
-        temp = temp->proximo;
+String_View extract_item(String_Builder *sb, int i) {
+    int pos = 0, indice = 0;
+    int max = 0;
+
+    while (pos < sb->count) {
+        if (sb->items[pos++] == ';') max++;
     }
 
-    temp->proximo = novo;
-}
+    pos = 0;
 
-void liberar_nodos(nodo_t *inicio) {
-    nodo_t *temp = inicio->proximo;
-    inicio->proximo = NULL;
+    String_View res = {0};
 
-    while (inicio->proximo != NULL) {
-        temp = inicio->proximo;
-        inicio = inicio->proximo;
-        free(temp);
+    int item_sz = 0;
+    while (pos < sb->count && indice <= max) {
+        if (sb->items[pos] == ';') {
+            if (indice == i) break;
+            indice++;
+            item_sz = 0;
+        }
+        item_sz++;
+        pos++;
     }
-}
 
-nodo_t *buscar_nodo_indice(nodo_t *inicio, size_t indice) {
-    nodo_t *temp = inicio;
-    
-    int c = 0;
-    while (temp->proximo != NULL) {
-        temp = temp->proximo;
-        if (c == indice) break;
-        c++;
+    res.items = (sb->items + pos) - item_sz;
+    res.count = item_sz;
+
+    if (*res.items == ';') {
+        res.items++;
+        res.count--;
     }
-    return temp;
+
+    return res;
 }
 
 int main(void) {
@@ -75,15 +72,10 @@ int main(void) {
     MYSQL_ROW row;
 
     char query[STR_MAX];
-    
-    int qtde_bancos = 0;
-    int qtde_tabelas = 0;
 
-    char bancos_combobox[STR_MAX] = " ";
-    char tabelas_combobox[STR_MAX] = " ";
-
-    nodo_t bancos = { .proximo = NULL };
-    nodo_t tabelas = { .proximo = NULL };
+    String_Builder bancos = {0};
+    String_Builder tabelas = {0};
+    String_Builder atributos = {0};
 
     // Conectar com usuario mysql em um banco de dados
     if (!mysql_real_connect(mysql, host, user, passwd, db, 0, NULL, 0)) {
@@ -101,20 +93,12 @@ int main(void) {
     res = mysql_use_result(mysql);
 
     while ((row = mysql_fetch_row(res)) != NULL) {
-        anexar_nodo(&bancos, row[0]);
-        qtde_bancos += 1;
+        if (bancos.count != 0) da_append(&bancos, ';');
+        util_sb_from_cstr(&bancos, row[0]);
     }
+    da_append(&bancos, '\0');
 
     mysql_free_result(res);
-
-    nodo_t *tmp = &bancos;
-    while (tmp->proximo != NULL) {
-        tmp = tmp->proximo;
-
-        strcat(bancos_combobox, tmp->nome);
-        if (tmp->proximo != NULL)
-            strcat(bancos_combobox, ";");
-    }
 
     // Inicializa janela
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
@@ -124,7 +108,7 @@ int main(void) {
     int tb_ativo = 0;
 
     int listViewScrollIndex = 0;
-    int listViewActive = -1;
+    int listViewActive = 0;
 
     bool db_aberto = false, tb_aberto = false;
 
@@ -146,29 +130,25 @@ int main(void) {
 
             ClearBackground(RAYWHITE);
 
-            //DrawText("Tabela:", 16, 16 + 64, GuiGetFont().baseSize, BLACK);
+            GuiDisable();
+            GuiButton((Rectangle) { bancos_estado.posicao.x + 312, bancos_estado.posicao.y, 200, 32 }, "Inserir dado");
+            GuiEnable();
+
             GuiDrawText("Tabela:", (Rectangle) { 16, 12 + 64, 200, 32 }, 0, BLACK);
         
             tabelas_estado.posicao.height = GetScreenHeight() - 128;
             
             if (db_aberto) GuiDisable();
-            
-            if (GuiListView(tabelas_estado.posicao, tabelas_combobox, &listViewScrollIndex, &listViewActive)) {
-                nodo_t *tmp = buscar_nodo_indice(&tabelas, listViewActive);
-                printf("DEBUG: tabela %s\n", tmp->nome);
-            }
-
-            GuiDrawText("Banco de Dados:", (Rectangle) { 16, 12, 200, 32 }, 0, BLACK);
+            if (GuiListView(tabelas_estado.posicao, tabelas.items, &listViewScrollIndex, &listViewActive));
             GuiEnable();
 
-            // TODO: Lidar com sv_to_cstr, aqui ocorre um memory leak
-            if (GuiDropdownBox(bancos_estado.posicao, bancos_combobox, &bd_selecionado, db_aberto)) {
+            GuiDrawText("Banco de Dados:", (Rectangle) { 16, 12, 200, 32 }, 0, BLACK);
+            if (GuiDropdownBox(bancos_estado.posicao, bancos.items, &bd_selecionado, db_aberto)) {
                 db_aberto = !db_aberto;
                 if (!db_aberto) {
-                    nodo_t *bd_ativo = buscar_nodo_indice(&bancos, bd_selecionado);
-
                     *query = '\0';
-                    sprintf(query, "call listar_tabelas('%s')", bd_ativo->nome);
+                    String_View bd = extract_item(&bancos, bd_selecionado);
+                    sprintf(query, "call listar_tabelas('%.*s')", bd.count, bd.items);
 
                     mysql_next_result(mysql);
                     if (mysql_query(mysql, query)) {
@@ -177,29 +157,14 @@ int main(void) {
                     }
                         
                     res = mysql_use_result(mysql);
-
-                    liberar_nodos(&tabelas);
-                    tabelas.proximo = NULL;
+                    
+                    tabelas.count = 0;
                     while ((row = mysql_fetch_row(res)) != NULL) {
-                        anexar_nodo(&tabelas, row[0]);
-                        printf("%s: %s\n", bd_ativo->nome, row[0]);
+                        if (tabelas.count != 0) da_append(&tabelas, ';');
+                        util_sb_from_cstr(&tabelas, row[0]);
                     }
+                    da_append(&tabelas, '\0');
 
-                    nodo_t *tmp = &tabelas;
-                    *tabelas_combobox = '\0';
-                    while (tmp->proximo != NULL) {
-                        tmp = tmp->proximo;
-
-                        if ((strlen(tabelas_combobox) + strlen(tmp->nome) + 1) <= STR_MAX) {
-                            
-                            strcat(tabelas_combobox, tmp->nome);
-                            if (tmp->proximo != NULL)
-                                strcat(tabelas_combobox, ";");
-                        } else {
-                            fprintf(stderr, "ERRO: tabelas_combobox atingiu seu limite\n");
-                        }
-                    }
-                    printf("DEBUG: %s\n", tabelas_combobox);
                     mysql_free_result(res);
                 }
             }
