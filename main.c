@@ -17,15 +17,6 @@
 
 #define STR_MAX 1024 * 8
 
-typedef struct {
-    Rectangle posicao;
-} combobox_estado;
-
-typedef enum {
-    PRINCIPAL = 0,
-    REGISTRO
-} estado_t;
-
 String_View extract_item(String_Builder *sb, int i) {
     int pos = 0, indice = 0;
     int max = 0;
@@ -80,6 +71,7 @@ int main(void) {
     String_View tabela_selecionada = {0};
 
     String_Builder atributos = {0};
+    String_View atributo_selecionado = {0};
 
     // Conectar com usuario mysql em um banco de dados
     if (!mysql_real_connect(mysql, host, user, passwd, db, 0, NULL, 0)) {
@@ -106,7 +98,7 @@ int main(void) {
 
     // Inicializa janela
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
-    InitWindow(800, 600, "Information Schema Mysql");
+    InitWindow(920, 720, "Information Schema Mysql");
 
     int bd_indice = 0;
     int tb_ativo = 0;
@@ -114,15 +106,9 @@ int main(void) {
     int listViewScrollIndex = 0;
     int tabela_indice = 0;
 
-    bool db_aberto = false, tb_aberto = false;
+    bool db_aberto = false, tb_aberto = false, reg_aberto = false;
 
-    combobox_estado tabelas_estado = {
-        .posicao = { 16, 20 + 16 + 64, (GetScreenWidth() / 3), GetScreenHeight() - 128 }
-    };
-
-    combobox_estado bancos_estado = {
-        .posicao = { 16, 20 + 16, GetScreenWidth() / 3, 32 }
-    };
+    bool modo_editar[5] = {false};
 
     Font font = LoadFontEx("./fonte/IosevkaNerdFont-Regular.ttf", 16, NULL, 100);
     GuiSetFont(font);
@@ -133,21 +119,30 @@ int main(void) {
             GuiSetStyle(DEFAULT, TEXT_SIZE, GuiGetFont().baseSize);
 
             ClearBackground(RAYWHITE);
-
-            GuiDisable();
-            GuiButton((Rectangle) { bancos_estado.posicao.x + 312, bancos_estado.posicao.y, 200, 32 }, "Inserir dado");
-            GuiEnable();
-
-            tabelas_estado.posicao.height = GetScreenHeight() - 128;
             
+            char tmp_str[STR_MAX];
+            sprintf(tmp_str, "%.*s",
+                    tabela_selecionada.count,
+                    tabela_selecionada.items);
+
+            if (strcmp(tmp_str, "venda") != 0) GuiDisable();
+
+            if (GuiButton((Rectangle) { 16 + 312, 20 + 16, 200, 32 }, "Inserir dado")) {
+                reg_aberto = true;
+            }
+
+            if (!reg_aberto) GuiEnable();
+
             GuiDrawText("Tabela:", (Rectangle) { 16, 12 + 64, 200, 32 }, 0, BLACK);
             if (db_aberto) GuiDisable();
-            
-            if (GuiListView(tabelas_estado.posicao, tabelas.items, &listViewScrollIndex, &tabela_indice)) {
+
+            if (GuiListView((Rectangle) { 16, 20 + 16 + 64, (GetScreenWidth() / 3), GetScreenHeight() - 128 }, tabelas.items, &listViewScrollIndex, &tabela_indice)) {
                 tabela_selecionada = extract_item(&tabelas, tabela_indice);
                 
                 *query = '\0';
-                sprintf(query, "call listar_atributos('%.*s', '%.*s')", banco_selecionado.count, banco_selecionado.items, tabela_selecionada.count, tabela_selecionada.items);
+                sprintf(query, "call listar_atributos('%.*s', '%.*s')",
+                        banco_selecionado.count, banco_selecionado.items,
+                        tabela_selecionada.count, tabela_selecionada.items);
 
                 mysql_next_result(mysql);
                 if (mysql_query(mysql, query)) {
@@ -157,17 +152,17 @@ int main(void) {
 
                 res = mysql_use_result(mysql);
 
-                tabelas.count = 0;
+                atributos.count = 0;
                 while ((row = mysql_fetch_row(res)) != NULL) {
-                    if (tabelas.count != 0) da_append(&tabelas, ';');
+                    if (atributos.count != 0) da_append(&atributos, ';');
                     util_sb_from_cstr(&atributos, row[0]);
                 }
                 da_append(&atributos, '\0');
             }
-            GuiEnable();
+            if (!reg_aberto) GuiEnable();
 
             GuiDrawText("Banco de Dados:", (Rectangle) { 16, 12, 200, 32 }, 0, BLACK);
-            if (GuiDropdownBox(bancos_estado.posicao, bancos.items, &bd_indice, db_aberto)) {
+            if (GuiDropdownBox((Rectangle) { 16, 20 + 16, GetScreenWidth() / 3, 32 }, bancos.items, &bd_indice, db_aberto)) {
                 db_aberto = !db_aberto;
                 if (!db_aberto) {
                     *query = '\0';
@@ -191,6 +186,52 @@ int main(void) {
 
                     mysql_free_result(res);
                 }
+            }
+
+            if (reg_aberto) {
+                GuiEnable();
+                int offset = 64;
+
+                reg_aberto = !GuiWindowBox((Rectangle) { offset, offset, GetScreenWidth() - 2*offset, GetScreenHeight() - 2*offset}, "Registrar Venda");
+                
+                char text[5][STR_MAX];
+                char label[5][STR_MAX] = {
+                    "Filial (Cod.):",
+                    "Cliente (Cod.):",
+                    "Funcionario (Cod.):",
+                    "Forma de Pagamento (Cod.):",
+                    "Quantidade (Uni.):"
+                };
+
+                for (int i = 0; i < 5; ++i) {
+                    GuiLabel((Rectangle) { offset + 32,  offset + (64 - 30) + (i * 64), 256, 30 }, label[i]);
+                    GuiEnableTooltip();
+                    if (GuiTextBox((Rectangle) { offset + 32, offset + 64 + (i * 64), 256, 30 }, text[i], 24, modo_editar[i])) {
+                        modo_editar[i] = !modo_editar[i];
+                    }
+                }
+
+                // Verifica se existem campos vazios
+                for (int i = 0; i < 5; ++i) {
+                    if (strcmp(text[i], "") == 0) {
+                        GuiDisable();
+                        break;
+                    }
+                }
+                if (GuiButton((Rectangle) { offset + 256, offset + 64 + (7 * 64), 128, 30 }, "Registrar")) {
+                    *query = '\0';
+                    sprintf(query, "call sp_inserir_venda(%s, %s, %s, %s)", text[0], text[1], text[2], text[3]);
+
+                    mysql_next_result(mysql);
+                    if (mysql_query(mysql, query)) {
+                        fprintf(stderr, "%s\n", mysql_error(mysql));
+                        exit(1);
+                    }
+
+                    reg_aberto = false;
+                }
+                
+                GuiDisable();
             }
         EndDrawing();
     }
